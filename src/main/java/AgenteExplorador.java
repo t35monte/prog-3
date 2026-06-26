@@ -5,6 +5,7 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.Map;
 import java.util.Queue;
+// Painel visual que mostra o mapa de calor em tempo real no ecrã
 import java.util.List;
 
 public class AgenteExplorador {
@@ -19,16 +20,20 @@ public class AgenteExplorador {
     private final java.util.Set<String> cofresFalhados = new java.util.HashSet<>();
     private final List<DocumentoVetorial> baseConhecimento;
     private final OllamaClient ollama;
+    private final PainelMapaCalor painel;
 
     public AgenteExplorador(List<DocumentoVetorial> baseConhecimento, OllamaClient ollama) {
         this.arenaClient = new ArenaClient(ROOM_ID, ROBOT_ID);
         this.baseConhecimento = baseConhecimento;
         this.ollama = ollama;
+        // Criar e abrir a janela visual do mapa de calor no arranque do agente
+        this.painel = PainelMapaCalor.criar();
     }
 
     public void iniciar() {
         // Registo na arena
         arenaClient.registar();
+
 
         // Ciclo principal Sense-Think-Act
         while (true) {
@@ -46,6 +51,9 @@ public class AgenteExplorador {
                 int y = estado.get("y").getAsInt();
                 int hp = estado.get("hp").getAsInt();
                 System.out.println("Posição: (" + x + ", " + y + ") | HP: " + hp);
+// Atualizar o painel visual com a posição atual, HP e última ação do robô
+// Isto redesenha o mapa de calor a cada turno em tempo real
+                painel.atualizar(historicoVisitas, x, y, hp, "");
 
                 // Registar visita no mapa de calor
                 String coordenada = x + "," + y;
