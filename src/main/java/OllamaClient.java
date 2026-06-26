@@ -114,4 +114,37 @@ public class OllamaClient {
             return "ERRO";
         }
     }
+    /**
+     * MÉTODO DE INTEGRAÇÃO GLOBAL (A API que o Engenheiro 1 vai chamar)
+     * Recebe o enigma do cofre e a lista de parágrafos do manual já vetorizados,
+     * faz a pesquisa semântica e devolve a chave final.
+     */
+    public String resolverDesafioRAG(String enigmaDoCofre, List<DocumentoVetorial> baseConhecimento) {
+        if (baseConhecimento == null || baseConhecimento.isEmpty()) {
+            System.err.println("Base de conhecimento vazia!");
+            return "ERRO_MANUAL_VAZIO";
+        }
+
+        // 1. Gerar o vetor para o enigma recebido da arena
+        double[] vetorEnigma = this.gerarEmbedding(enigmaDoCofre);
+
+        // 2. Procurar o parágrafo mais relevante por Semelhança de Cossenos
+        DocumentoVetorial melhorParagrafo = null;
+        double maiorSemelhanca = -1.0;
+
+        for (DocumentoVetorial doc : baseConhecimento) {
+            double semelhanca = this.calcularCosineSimilarity(vetorEnigma, doc.getVetor());
+            if (semelhanca > maiorSemelhanca) {
+                maiorSemelhanca = semelhanca;
+                melhorParagrafo = doc;
+            }
+        }
+
+        // 3. Extrair e devolver a chave usando o modelo LLM
+        if (melhorParagrafo != null) {
+            return this.extrairChaveComLLM(melhorParagrafo.getTexto(), enigmaDoCofre);
+        }
+
+        return "ERRO_NENHUM_MATCH";
+    }
 }
