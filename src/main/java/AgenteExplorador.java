@@ -17,7 +17,9 @@ public class AgenteExplorador {
     private final ArenaClient arenaClient;
     private final Map<String, Integer> historicoVisitas = new HashMap<>();
     private final Queue<String> filaAcoesPlaneadas = new LinkedList<>();
-    private final java.util.Set<String> cofresFalhados = new java.util.HashSet<>();
+
+    // USAR OS TEUS COMPONENTES DE IA E SEGURANÇA
+    private final GestorCofres gestorCofres;
     private final List<DocumentoVetorial> baseConhecimento;
     private final OllamaClient ollama;
     private final PainelMapaCalor painel;
@@ -26,7 +28,7 @@ public class AgenteExplorador {
         this.arenaClient = new ArenaClient(ROOM_ID, ROBOT_ID);
         this.baseConhecimento = baseConhecimento;
         this.ollama = ollama;
-        // Criar e abrir a janela visual do mapa de calor no arranque do agente
+        this.gestorCofres = new GestorCofres(); // Inicializa o teu gestor
         this.painel = PainelMapaCalor.criar();
     }
 
@@ -95,69 +97,40 @@ public class AgenteExplorador {
 
     private String verificarCofre(JsonObject telemetria) {
         try {
-            // Verificar se existe um enigma na posição atual do robô
-            // Se não houver campo "terminal_desafio" ou estiver vazio, não há cofre aqui
+            // Verificar se existe um enigma na posição atual
             if (!telemetria.has("terminal_desafio") || telemetria.get("terminal_desafio").isJsonNull()) {
                 return null;
             }
 
-            // Extrair o texto do enigma do cofre
             String enigma = telemetria.get("terminal_desafio").getAsString();
             if (enigma.isEmpty()) return null;
 
-            // Obter a coordenada atual do robô para verificar a blacklist
             JsonObject estado = telemetria.getAsJsonObject("o_meu_estado");
-            String coordenada = estado.get("x").getAsInt() + "," + estado.get("y").getAsInt();
+            int x = estado.get("x").getAsInt();
+            int y = estado.get("y").getAsInt();
 
-            // Se este cofre já falhou antes, ignorar para não gastar HP em vão
-            if (cofresFalhados.contains(coordenada)) {
-                System.out.println("Cofre em blacklist, a ignorar: " + coordenada);
+            // 1. Validar segurança usando o teu GestorCofres (Evita choques -10 HP)
+            if (!gestorCofres.podeInteragir(x, y)) {
                 return null;
             }
 
-            System.out.println("Cofre detetado! Enigma: " + enigma);
+            System.out.println("Cofre detetado em ("+x+","+y+")! Enigma: " + enigma);
 
-            // === PIPELINE RAG (Eng 2) ===
+            // 2. Chamar o teu método unificado de RAG do Engenheiro 2 (Tudo numa só linha!)
+            String chave = ollama.resolverDesafioRAG(enigma, baseConhecimento);
+            System.out.println("Chave extraída pelo RAG: " + chave);
 
-            // Passo 1: Vetorizar o enigma para comparar com o manual
-            double[] vetorEnigma = ollama.gerarEmbedding(enigma);
+            // 3. Submissão da chave (Engenheiro 1)
+            // Enviamos uma String fictícia ou vazia para o contexto de auditoria se necessário
+            JsonObject resultado = arenaClient.desbloquear(chave, "Contexto RAG enviado pelo Agente", chave);
 
-            // Passo 2: Percorrer todos os blocos do manual e calcular
-            // a semelhança de cossenos entre o enigma e cada bloco
-            DocumentoVetorial melhorDoc = null;
-            double maiorSemelhanca = -1.0;
-
-            for (DocumentoVetorial doc : baseConhecimento) {
-                double semelhanca = ollama.calcularCosineSimilarity(vetorEnigma, doc.getVetor());
-                if (semelhanca > maiorSemelhanca) {
-                    maiorSemelhanca = semelhanca;
-                    melhorDoc = doc; // Guardar o bloco mais relevante
-                }
-            }
-
-            if (melhorDoc == null) return null;
-
-            // Passo 3: Enviar o bloco mais relevante + enigma ao LLM
-            // para extrair apenas a chave alfanumérica
-            String llmRaw = ollama.extrairChaveComLLM(melhorDoc.getTexto(), enigma);
-            String chave = llmRaw.trim();
-            System.out.println("Chave extraída: " + chave);
-
-            // === SUBMISSÃO DA CHAVE (Eng 1) ===
-
-            // Enviar a chave para o servidor da arena
-            // Também enviamos o chunk RAG e a resposta bruta do LLM para auditoria do professor
-            JsonObject resultado = arenaClient.desbloquear(chave, melhorDoc.getTexto(), llmRaw);
-
-            // Verificar se o servidor aceitou a chave
+            // 4. Tratar o resultado com o teu gestor
             if (resultado != null && resultado.has("status")) {
                 String status = resultado.get("status").getAsString();
                 if (status.equals("sucesso")) {
-                    System.out.println("Cofre aberto com sucesso!");
+                    gestorCofres.registarSucesso(x, y);
                 } else {
-                    // Chave errada — adicionar à blacklist para nunca mais tentar
-                    System.out.println("Chave errada! A adicionar à blacklist.");
-                    cofresFalhados.add(coordenada);
+                    gestorCofres.registarFalhaNaListaNegra(x, y);
                 }
             }
 
@@ -165,7 +138,6 @@ public class AgenteExplorador {
             System.out.println("Erro ao verificar cofre: " + e.getMessage());
         }
 
-        // Retorna null porque abrir um cofre não é um movimento de direção
         return null;
     }
 
