@@ -5,7 +5,7 @@ public class Main {
     public static void main(String[] args) throws InterruptedException {
 
         // CONFIGURAÇÃO CENTRAL (Muda apenas aqui no dia do exame!)
-        String salaFinal = "A123C1";
+        String salaFinal = "8E37DA";
         String nomeDoRobo = "oi";
 
         System.out.println("=== A INICIAR O CÉREBRO DO ROBÔ ===");
@@ -38,6 +38,8 @@ public class Main {
         System.out.println("[RAG] Manual indexado com " + baseConhecimento.size() + " blocos.");
 
         // Inicializa o agente passando as variáveis da sala e do robô
+        // DEPOIS:
+        // ALTERA ESTA LINHA:
         AgenteExplorador agente = new AgenteExplorador(salaFinal, nomeDoRobo, baseConhecimento, ollama);
         agente.iniciar();
     }
