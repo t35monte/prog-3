@@ -5,7 +5,7 @@ public class Main {
     public static void main(String[] args) throws InterruptedException {
 
         // CONFIGURAÇÃO CENTRAL (Muda apenas aqui no dia do exame!)
-        String salaFinal = "09EED4";
+        String salaFinal = "A123C1";
         String nomeDoRobo = "oi";
 
         System.out.println("=== A INICIAR O CÉREBRO DO ROBÔ ===");

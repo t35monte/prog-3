@@ -10,7 +10,9 @@ import java.net.http.HttpResponse;
 public class ArenaClient {
 
     private static final String BASE_URL = "https://arena.pmonteiro.ovh";
-    private final HttpClient client = HttpClient.newHttpClient();
+    private final HttpClient client = HttpClient.newBuilder()
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
     private final String roomId;
     private final String robotId;
     private String palavraPasse = "";
@@ -27,7 +29,6 @@ public class ArenaClient {
 
     public String registar() {
         try {
-            // POST /arena/{room_id}/register?robot_id={robot_id}
             String url = BASE_URL + "/arena/" + roomId + "/register?robot_id=" + codificar(robotId);
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
@@ -43,7 +44,7 @@ public class ArenaClient {
                 JsonObject json = JsonParser.parseString(corpo).getAsJsonObject();
                 if (json.has("password")) {
                     this.palavraPasse = json.get("password").getAsString();
-                    System.out.println("[INFO] Palavra-passe guardada com sucesso! -> " + this.palavraPasse);
+                    System.out.println("[INFO] Palavra-passe guardada: " + this.palavraPasse);
                 }
             }
             return corpo;
@@ -55,7 +56,6 @@ public class ArenaClient {
 
     public JsonObject percecionar() {
         try {
-            // CORREÇÃO SWAGGER: GET /arena/{room_id}/perceive/{robot_id}
             String url = BASE_URL + "/arena/" + roomId + "/perceive/" + codificar(robotId);
 
             HttpRequest request = HttpRequest.newBuilder()
@@ -66,55 +66,68 @@ public class ArenaClient {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
 
             String corpo = response.body();
+            System.out.println("[DEBUG] Perceive raw: " + corpo);
 
-            if (corpo == null || !corpo.trim().startsWith("{")) {
-                System.out.println("[DEBUG] Erro no perceive. Servidor respondeu: " + corpo);
+            if (corpo == null || corpo.isBlank()) return null;
+
+            // Se vier como string JSON escapada (ex: "{\"x\":1}" com aspas externas), limpar
+            String limpo = corpo.trim();
+            if (limpo.startsWith("\"") && limpo.endsWith("\"")) {
+                // Remover aspas externas e fazer unescape
+                limpo = limpo.substring(1, limpo.length() - 1).replace("\\\"", "\"");
+            }
+
+            if (!limpo.startsWith("{")) {
+                System.out.println("[DEBUG] Perceive não é JSON: " + limpo);
                 return null;
             }
 
-            return JsonParser.parseString(corpo).getAsJsonObject();
+            return JsonParser.parseString(limpo).getAsJsonObject();
         } catch (Exception e) {
             System.out.println("Erro no perceive: " + e.getMessage());
             return null;
         }
     }
 
-    public JsonObject agir(String acao) {
+    public String agir(String acao) {
+
         try {
-            // Rota limpa como pede o Swagger
+
             String url = BASE_URL + "/arena/action";
 
-            // Criar o corpo JSON esperado pelo servidor FastAPI
-            JsonObject jsonCorpo = new JsonObject();
-            jsonCorpo.addProperty("room_id", this.roomId);   // <-- ADICIONADO AQUI! O servidor exige o ID da sala no body
-            jsonCorpo.addProperty("robot_id", this.robotId);
-            jsonCorpo.addProperty("action", acao.toLowerCase());
-            String corpoString = jsonCorpo.toString();
+            JsonObject body = new JsonObject();
+            body.addProperty("room_id", roomId);
+            body.addProperty("robot_id", robotId);
+            body.addProperty("action", acao);
+
+            System.out.println("====================================");
+            System.out.println("POST " + url);
+            System.out.println(body.toString());
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
+                    .header("Content-Type", "application/json")
                     .header("Accept", "application/json")
-                    .header("Content-Type", "application/json") // Avisa o servidor que vai JSON no corpo
-                    .POST(HttpRequest.BodyPublishers.ofString(corpoString))
+                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                     .build();
 
-            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            String corpo = response.body();
-            System.out.println("[DEBUG] Resposta do agir: " + corpo);
+            HttpResponse<String> response =
+                    client.send(request, HttpResponse.BodyHandlers.ofString());
 
-            if (corpo == null || !corpo.trim().startsWith("{")) {
-                return null;
-            }
-            return JsonParser.parseString(corpo).getAsJsonObject();
+            System.out.println("HTTP: " + response.statusCode());
+            System.out.println(response.body());
+            System.out.println("====================================");
+
+            return response.body();
+
         } catch (Exception e) {
-            System.out.println("Erro no action: " + e.getMessage());
+            e.printStackTrace();
             return null;
         }
     }
 
     public JsonObject desbloquear(String code, String ragChunk, String llmRaw) {
         try {
-            // POST /arena/{room_id}/unlock
             String url = BASE_URL + "/arena/" + roomId + "/unlock"
                     + "?robot_id=" + codificar(robotId)
                     + "&password=" + codificar(palavraPasse)
@@ -142,7 +155,6 @@ public class ArenaClient {
 
     public String descarregarManual() {
         try {
-            // GET /arena/{room_id}/download_manual
             String url = BASE_URL + "/arena/" + roomId + "/download_manual";
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(url))
