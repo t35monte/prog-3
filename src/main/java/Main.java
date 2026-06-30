@@ -12,7 +12,7 @@ public class Main {
         OllamaClient ollama = new OllamaClient();
 
         // Usa as variáveis centralizadas para descarregar o manual
-        ArenaClient clienteTemp = new ArenaClient(salaFinal, nomeDoRobo);
+        ArenaClient clienteTemp = new ArenaClient("B76A6F", "RoboXPTO");
         String manualReal = clienteTemp.descarregarManual();
 
         List<String> linhasDoManual = new ArrayList<>();
@@ -40,7 +40,7 @@ public class Main {
         // Inicializa o agente passando as variáveis da sala e do robô
         // DEPOIS:
         // ALTERA ESTA LINHA:
-        AgenteExplorador agente = new AgenteExplorador(salaFinal, nomeDoRobo, baseConhecimento, ollama);
+        AgenteExplorador agente = new AgenteExplorador("B76A6F", "RoboXPTO", baseConhecimento, ollama);
         agente.iniciar();
     }
 }
