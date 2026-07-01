@@ -5,14 +5,14 @@ public class Main {
     public static void main(String[] args) throws InterruptedException {
 
         // CONFIGURAÇÃO CENTRAL (Muda apenas aqui no dia do exame!)
-        String salaFinal = "8E37DA";
+        String salaFinal = "9EDCAB";
         String nomeDoRobo = "oi";
 
         System.out.println("=== A INICIAR O CÉREBRO DO ROBÔ ===");
         OllamaClient ollama = new OllamaClient();
 
         // Usa as variáveis centralizadas para descarregar o manual
-        ArenaClient clienteTemp = new ArenaClient("B76A6F", "RoboXPTO");
+        ArenaClient clienteTemp = new ArenaClient(salaFinal, nomeDoRobo);
         String manualReal = clienteTemp.descarregarManual();
 
         List<String> linhasDoManual = new ArrayList<>();
@@ -40,7 +40,7 @@ public class Main {
         // Inicializa o agente passando as variáveis da sala e do robô
         // DEPOIS:
         // ALTERA ESTA LINHA:
-        AgenteExplorador agente = new AgenteExplorador("B76A6F", "RoboXPTO", baseConhecimento, ollama);
+        AgenteExplorador agente = new AgenteExplorador(salaFinal, nomeDoRobo, baseConhecimento, ollama);
         agente.iniciar();
     }
 }

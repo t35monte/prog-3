@@ -98,19 +98,16 @@ public class AgenteExplorador {
                             System.out.println("[COLISÃO #" + tentativas + "] " + ultimaAcaoMovimento + " -> " + coordAlvo);
                         }
 
-                        // Se está preso há muitos turnos, resetar tudo e tentar escapar
                         if (turnosSemMover >= 6) {
                             System.out.println("[RESET] Preso há " + turnosSemMover + " turnos! A resetar paredes.");
                             paredesConhecidas.clear();
                             contadorColisoes.clear();
                             filaAcoesPlaneadas.clear();
                             turnosSemMover = 0;
-                            // Adicionar sequência de escape aleatória
                             String[] escape = {"NORTE", "ESTE", "SUL", "OESTE", "NORTE", "ESTE"};
                             for (String dir : escape) filaAcoesPlaneadas.add(dir);
                         }
                     } else {
-                        // Moveu com sucesso
                         turnosSemMover = 0;
                         contadorColisoes.clear();
                     }
@@ -145,37 +142,26 @@ public class AgenteExplorador {
 
                 // === ACT ===
                 if (acao != null) {
+                    // Se for uma ação interna de controlo (como pular o turno após responder), não enviamos movimento
+                    if (acao.equals("JA_RESOLVIDO")) {
+                        Thread.sleep(375);
+                        continue;
+                    }
 
                     System.out.println("A enviar ação para o servidor: " + acao);
 
                     if (acao.equals("NORTE") || acao.equals("SUL") ||
                             acao.equals("ESTE") || acao.equals("OESTE")) {
-
                         ultimaAcaoMovimento = acao;
                     }
 
                     String acaoAPI;
-
                     switch (acao) {
-                        case "NORTE":
-                            acaoAPI = "MOVER_NORTE";
-                            break;
-
-                        case "SUL":
-                            acaoAPI = "MOVER_SUL";
-                            break;
-
-                        case "ESTE":
-                            acaoAPI = "MOVER_ESTE";
-                            break;
-
-                        case "OESTE":
-                            acaoAPI = "MOVER_OESTE";
-                            break;
-
-                        default:
-                            acaoAPI = acao;
-                            break;
+                        case "NORTE": acaoAPI = "MOVER_NORTE"; break;
+                        case "SUL":   acaoAPI = "MOVER_SUL";   break;
+                        case "ESTE":  acaoAPI = "MOVER_ESTE";  break;
+                        case "OESTE": acaoAPI = "MOVER_OESTE"; break;
+                        default:      acaoAPI = acao;          break;
                     }
 
                     arenaClient.agir(acaoAPI);
@@ -198,47 +184,71 @@ public class AgenteExplorador {
         try {
             if (telemetria.has("cofres_no_mundo") && !telemetria.get("cofres_no_mundo").isJsonNull()) {
                 JsonArray cofres = telemetria.getAsJsonArray("cofres_no_mundo");
+                JsonObject cofreMaisPerto = null;
+                int menorDistancia = Integer.MAX_VALUE;
+
                 for (JsonElement el : cofres) {
-                    JsonObject cofre = el.getAsJsonObject();
-                    int cx = (int) cofre.get("x").getAsDouble();
-                    int cy = (int) cofre.get("y").getAsDouble();
-                    if (cx == x && cy == y && cofre.has("terminal_desafio") && !cofre.get("terminal_desafio").isJsonNull()) {
-                        String enigma = cofre.get("terminal_desafio").getAsString();
-                        if (!enigma.isEmpty() && gestorCofres.podeInteragir(x, y)) {
-                            System.out.println("Cofre detetado em (" + x + "," + y + ")! Enigma: " + enigma);
-                            String chave = ollama.resolverDesafioRAG(enigma, baseConhecimento);
-                            System.out.println("Chave extraída pelo RAG: " + chave);
-                            JsonObject resultado = arenaClient.desbloquear(chave, "Contexto RAG enviado pelo Agente", chave);
-                            if (resultado != null && resultado.has("status")) {
-                                String status = resultado.get("status").getAsString();
-                                if (status.equalsIgnoreCase("sucesso") || status.equalsIgnoreCase("registado")) {
-                                    gestorCofres.registarSucesso(x, y);
-                                } else {
-                                    gestorCofres.registarFalhaNaListaNegra(x, y);
+                    if (!el.isJsonObject()) continue;
+                    JsonObject obj = el.getAsJsonObject();
+
+                    if (obj.has("x") && obj.has("y")) {
+                        int cx = (int) obj.get("x").getAsDouble();
+                        int cy = (int) obj.get("y").getAsDouble();
+
+                        if (!gestorCofres.podeInteragir(cx, cy)) continue;
+
+                        // 1. COMPORTAMENTO IMEDIATO: Estamos exatamente em cima deste cofre?
+                        if (cx == x && cy == y) {
+                            // O desafio vem aqui dentro do objeto do cofre enviado pelo radar
+                            if (obj.has("terminal_desafio") && !obj.get("terminal_desafio").isJsonNull()) {
+                                String enigma = obj.get("terminal_desafio").getAsString();
+
+                                if (!enigma.trim().isEmpty()) {
+                                    System.out.println("\n[!!!!] EM CIMA DO COFRE (" + x + "," + y + ")! Enigma detetado: " + enigma);
+
+                                    // Executa o RAG com o Ollama
+                                    String chave = ollama.resolverDesafioRAG(enigma, baseConhecimento);
+                                    System.out.println("[RAG] Chave gerada pelo Ollama: " + chave);
+
+                                    // Envia o comando de desbloqueio através do cliente API
+                                    JsonObject resultado = arenaClient.desbloquear(chave, "Contexto RAG enviado pelo Agente", chave);
+
+                                    if (resultado != null && resultado.has("status")) {
+                                        String status = resultado.get("status").getAsString();
+                                        System.out.println("[RECOMPENSA] Resposta do servidor: " + status);
+
+                                        if (status.equalsIgnoreCase("sucesso") || status.equalsIgnoreCase("registado") || status.equalsIgnoreCase("ok")) {
+                                            gestorCofres.registarSucesso(x, y);
+                                        } else {
+                                            System.out.println("[AVISO] Falha ao abrir. Adicionado à lista negra para não empancar.");
+                                            gestorCofres.registarFalhaNaListaNegra(x, y);
+                                        }
+                                    }
+                                    // Retorna um sinal interno para o loop saber que este turno foi usado para responder
+                                    return "JA_RESOLVIDO";
                                 }
                             }
-                            return null;
+                            continue; // Se já estamos aqui e não há desafio/já foi resolvido, passamos à frente
+                        }
+
+                        // 2. COMPORTAMENTO DE ATRAÇÃO: Calcular distância para encontrar o mais perto
+                        int distancia = Math.abs(x - cx) + Math.abs(y - cy);
+                        if (distancia < menorDistancia) {
+                            menorDistancia = distancia;
+                            cofreMaisPerto = obj;
                         }
                     }
                 }
-            }
 
-            if (!telemetria.has("terminal_desafio") || telemetria.get("terminal_desafio").isJsonNull()) return null;
-            String enigma = telemetria.get("terminal_desafio").getAsString();
-            if (enigma.isEmpty() || !gestorCofres.podeInteragir(x, y)) return null;
-
-            System.out.println("Cofre detetado em (" + x + "," + y + ")! Enigma: " + enigma);
-            String chave = ollama.resolverDesafioRAG(enigma, baseConhecimento);
-            System.out.println("Chave extraída pelo RAG: " + chave);
-            JsonObject resultado = arenaClient.desbloquear(chave, "Contexto RAG enviado pelo Agente", chave);
-            if (resultado != null && resultado.has("status")) {
-                String status = resultado.get("status").getAsString();
-                if (status.equalsIgnoreCase("sucesso") || status.equalsIgnoreCase("registado")) {
-                    gestorCofres.registarSucesso(x, y);
-                } else {
-                    gestorCofres.registarFalhaNaListaNegra(x, y);
+                // Se o radar encontrou um cofre distante válido, movemo-nos em direção a ele
+                if (cofreMaisPerto != null && filaAcoesPlaneadas.isEmpty()) {
+                    int cx = (int) cofreMaisPerto.get("x").getAsDouble();
+                    int cy = (int) cofreMaisPerto.get("y").getAsDouble();
+                    System.out.println("[RADAR ACTIVE] Cofre detetado em (" + cx + "," + cy + ") a " + menorDistancia + " blocos de distância.");
+                    return moverEmDirecao(x, y, cx, cy);
                 }
             }
+
         } catch (Exception e) {
             System.out.println("Erro ao verificar cofre: " + e.getMessage());
         }
@@ -297,7 +307,7 @@ public class AgenteExplorador {
 
         JsonArray paredesArray = telemetria.has("objetos_fixos") ? telemetria.getAsJsonArray("objetos_fixos") : null;
 
-        String melhorDirecao = null;
+        List<String> melhoresDirecoes = new ArrayList<>();
         int menorCalor = Integer.MAX_VALUE;
 
         for (int i = 0; i < direcoes.length; i++) {
@@ -305,43 +315,27 @@ public class AgenteExplorador {
             int ny = y + dy[i];
             String coordVizinho = nx + "," + ny;
 
-            if (paredesConhecidas.contains(coordVizinho)) {
-                System.out.println("[MOVIMENTO] " + direcoes[i] + " -> (" + nx + "," + ny + ") parede=true (colisão) calor=0");
-                continue;
-            }
+            if (paredesConhecidas.contains(coordVizinho)) continue;
+            if (temParede(paredesArray, nx, ny)) continue;
 
-            boolean parede = temParede(paredesArray, nx, ny);
             int calor = historicoVisitas.getOrDefault(coordVizinho, 0);
-            System.out.println("[MOVIMENTO] " + direcoes[i] + " -> (" + nx + "," + ny + ") parede=" + parede + " calor=" + calor);
-
-            if (parede) continue;
 
             if (calor < menorCalor) {
                 menorCalor = calor;
-                melhorDirecao = direcoes[i];
+                melhoresDirecoes.clear();
+                melhoresDirecoes.add(direcoes[i]);
+            } else if (calor == menorCalor) {
+                melhoresDirecoes.add(direcoes[i]);
             }
         }
 
-        if (melhorDirecao == null) {
-            System.out.println("[EMERGÊNCIA] Todas as direções bloqueadas! A limpar memória de paredes.");
-            paredesConhecidas.clear();
-            contadorColisoes.clear();
-            for (int i = 0; i < direcoes.length; i++) {
-                int nx = x + dx[i];
-                int ny = y + dy[i];
-                if (!temParede(paredesArray, nx, ny)) {
-                    int calor = historicoVisitas.getOrDefault(nx + "," + ny, 0);
-                    if (calor < menorCalor) {
-                        menorCalor = calor;
-                        melhorDirecao = direcoes[i];
-                    }
-                }
-            }
-            if (melhorDirecao == null) melhorDirecao = "NORTE";
+        if (melhoresDirecoes.isEmpty()) {
+            System.out.println("[DIRECÇÃO FORÇADA] Sem saídas limpas. A recuar a OESTE.");
+            return "OESTE";
         }
 
-        System.out.println("[ESCOLHA] " + melhorDirecao);
-        return melhorDirecao;
+        Collections.shuffle(melhoresDirecoes);
+        return melhoresDirecoes.get(0);
     }
 
     private boolean temParede(JsonArray objetos, int x, int y) {
